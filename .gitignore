@@ -1,0 +1,19 @@
+# Compiled python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+*.egg-info/
+
+# Emacs files
+*~
+.\#*
+
+# IntelliJ files
+.idea/
+*.iml
+
+# Bazel files
+bazel-*
+build/
