@@ -67,7 +67,9 @@ class GpuSchedulerRunnable:
             print('Resuming!')
             # Temporary hack: replace with save file
             for container in found_containers:
-                container_id = self.state.add_container_row_cascade(
+                container_id = container.id
+                self.state.add_container_row_cascade(
+                    container_id=container_id,
                     is_preemptable=True,
                     priority=0,
                     usd_per_sec=MINING_USD_PER_SEC,
@@ -206,7 +208,9 @@ class GpuSchedulerRunnable:
         except docker.errors.APIError as e:
             raise e
 
-        container_id = self.state.add_container_row_cascade(
+        container_id = container.id
+        self.state.add_container_row_cascade(
+            container_id=container_id,
             is_preemptable=task.is_preemptable,
             priority=task.priority,
             usd_per_sec=task.gpu_type_to_usd_per_sec(''),

@@ -36,7 +36,6 @@ class Task:
 
 class GpuSchedulerStateConnection:
     def __init__(self):
-        self.next_container_id = 1
         self.next_gpu_id = 0
         self.next_task_id = 0
         self.db = sqlite3.connect('gbs_state')
@@ -49,8 +48,8 @@ class GpuSchedulerStateConnection:
             self.db.execute('''DROP TABLE IF EXISTS GpuContainer;''')
             self.db.execute('''DROP TABLE IF EXISTS Task;''')
             self.db.execute('''CREATE TABLE IF NOT EXISTS Gpu (gpu_id INTEGER, gpu_type STRING);''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS Container (container_id INTEGER, is_preemptable INTEGER, priority INTEGER, usd_per_sec REAL);''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS GpuContainer (gpu_id INTEGER, container_id INTEGER);''')
+            self.db.execute('''CREATE TABLE IF NOT EXISTS Container (container_id STRING, is_preemptable INTEGER, priority INTEGER, usd_per_sec REAL);''')
+            self.db.execute('''CREATE TABLE IF NOT EXISTS GpuContainer (gpu_id INTEGER, container_id STRING);''')
             self.db.execute('''CREATE TABLE IF NOT EXISTS Task (task_id INTEGER, name STRING, cmd STRING, mount_path STRING, is_preemptable INTEGER, priority INTEGER);''')
 
     def gpu_row(self, gpu_id):
@@ -65,13 +64,11 @@ class GpuSchedulerStateConnection:
     def container_gpus(self, container_id):
         return [gpu_id for (gpu_id,) in self.db.execute('''SELECT gpu_id FROM GpuContainer WHERE container_id = ?;''', (container_id,)).fetchall()]
 
-    def add_container_row_cascade(self, is_preemptable, priority, usd_per_sec, gpu_ids=None):
-        container_id = self.next_container_id
+    def add_container_row_cascade(self, container_id, is_preemptable, priority, usd_per_sec, gpu_ids=None):
         with self.db:
             self.db.execute('''INSERT INTO Container VALUES (?, ?, ?, ?)''', (container_id, is_preemptable, priority, usd_per_sec))
             if gpu_ids:
                 self.db.executemany('''INSERT INTO GpuContainer VALUES (?, ?)''', [(gpu_id, container_id) for gpu_id in gpu_ids])
-        self.next_container_id += 1
         return container_id
 
     def add_gpu_row(self, gpu_type, container_ids=None):
