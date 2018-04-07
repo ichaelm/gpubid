@@ -71,6 +71,8 @@ class GpuSchedulerRunnable:
                 # Temporary hack: replace with save file
                 for container in found_containers:
                     container_id = container.id
+                    print('Found container:')
+                    print(container_id)
                     self.state.add_container_row_cascade(
                         container_id=container_id,
                         is_preemptable=True,
@@ -84,6 +86,7 @@ class GpuSchedulerRunnable:
         else:
             print('No reset necessary')
             for container_id in self.state.container_ids():
+                print(container_id)
                 container = docker_api.containers.get(container_id)
                 self.container_objs[container_id] = container
                 self.container_logs[container_id] = container.logs(stdout=True, stderr=True, stream=True)
@@ -91,10 +94,17 @@ class GpuSchedulerRunnable:
         # Main loop
         while not self.quitting:
             time.sleep(MAIN_LOOP_DELAY_SEC)
+            self.ensure_consistency()
             self.decide_changes()
 
-    def decide_changes(self):
-        # Clean up empty containers
+    def ensure_consistency(self):
+        # The real world might have changed in the following ways:
+        # - A GPU was added
+        # - A GPU was removed
+        # - A container died
+        # - Some other process is using a GPU
+
+        # Handle dead containers by cleaning up their state entries
         start_time = time.time()
         containers_to_remove = set()
         for container_id, container in self.container_objs.items():
@@ -114,6 +124,8 @@ class GpuSchedulerRunnable:
             del self.container_objs[container_id]
         end_time = time.time()
         print('Cleanup took %f seconds.' % (end_time - start_time))
+
+    def decide_changes(self):
         # Fill all empty GPUs
         for gpu_id in self.state.get_unused_gpus():
             print('filling empty GPU')
