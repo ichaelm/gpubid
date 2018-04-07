@@ -57,27 +57,36 @@ class GpuSchedulerRunnable:
 
     def start_or_resume(self):
         self.state = gpu_scheduler_state_connection.GpuSchedulerStateConnection()
-        # Setup tables
-        self.state.create_tables_if_necessary()
-        for gpu_id in range(1):
-            self.state.add_gpu_row(gpu_type='')
-        found_containers = docker_api.containers.list(filters={'ancestor': CUDA_IMAGE_NAME})
-        current_gpu_id = 0
-        if found_containers:
-            print('Resuming!')
-            # Temporary hack: replace with save file
-            for container in found_containers:
-                container_id = container.id
-                self.state.add_container_row_cascade(
-                    container_id=container_id,
-                    is_preemptable=True,
-                    priority=0,
-                    usd_per_sec=MINING_USD_PER_SEC,
-                    gpu_ids=[current_gpu_id],
-                )
+        # Sanity check tables and reset if necessary
+        was_reset = self.state.reset_if_necessary()
+        # If tables were reset, repopulate tables
+        if was_reset:
+            print('Tables reset!')
+            for gpu_id in range(1):
+                self.state.add_gpu_row(gpu_id=gpu_id, gpu_type='')
+            found_containers = docker_api.containers.list(filters={'ancestor': CUDA_IMAGE_NAME})
+            current_gpu_id = 0
+            if found_containers:
+                print('Resuming from docker ps')
+                # Temporary hack: replace with save file
+                for container in found_containers:
+                    container_id = container.id
+                    self.state.add_container_row_cascade(
+                        container_id=container_id,
+                        is_preemptable=True,
+                        priority=0,
+                        usd_per_sec=MINING_USD_PER_SEC,
+                        gpu_ids=[current_gpu_id],
+                    )
+                    self.container_objs[container_id] = container
+                    self.container_logs[container_id] = container.logs(stdout=True, stderr=True, stream=True)
+                    current_gpu_id += 1
+        else:
+            print('No reset necessary')
+            for container_id in self.state.container_ids():
+                container = docker_api.containers.get(container_id)
                 self.container_objs[container_id] = container
                 self.container_logs[container_id] = container.logs(stdout=True, stderr=True, stream=True)
-                current_gpu_id += 1
 
         # Main loop
         while not self.quitting:

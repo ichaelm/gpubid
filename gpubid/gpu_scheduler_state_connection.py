@@ -1,4 +1,3 @@
-import threading
 import sqlite3
 
 
@@ -36,27 +35,50 @@ class Task:
 
 class GpuSchedulerStateConnection:
     def __init__(self):
-        self.next_gpu_id = 0
         self.next_task_id = 0
         self.db = sqlite3.connect('gbs_state')
         self.db.row_factory = sqlite3.Row
 
-    def create_tables_if_necessary(self):
+    def reset_if_necessary(self):
+        valid = True
+        valid &= (1 == self.db.execute('''SELECT COUNT(0) FROM SQLITE_MASTER WHERE TYPE = "table" AND NAME = "Gpu";''').fetchone()[0])
+        valid &= (1 == self.db.execute('''SELECT COUNT(0) FROM SQLITE_MASTER WHERE TYPE = "table" AND NAME = "Container";''').fetchone()[0])
+        valid &= (1 == self.db.execute('''SELECT COUNT(0) FROM SQLITE_MASTER WHERE TYPE = "table" AND NAME = "GpuContainer";''').fetchone()[0])
+        valid &= (1 == self.db.execute('''SELECT COUNT(0) FROM SQLITE_MASTER WHERE TYPE = "table" AND NAME = "Task";''').fetchone()[0])
+        if not valid:
+            self.reset()
+            return True
+        if not self.is_sane():
+            self.reset()
+            return True
+        return False
+
+    def reset(self):
         with self.db:
             self.db.execute('''DROP TABLE IF EXISTS Gpu;''')
             self.db.execute('''DROP TABLE IF EXISTS Container;''')
             self.db.execute('''DROP TABLE IF EXISTS GpuContainer;''')
             self.db.execute('''DROP TABLE IF EXISTS Task;''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS Gpu (gpu_id INTEGER, gpu_type STRING);''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS Container (container_id STRING, is_preemptable INTEGER, priority INTEGER, usd_per_sec REAL);''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS GpuContainer (gpu_id INTEGER, container_id STRING);''')
-            self.db.execute('''CREATE TABLE IF NOT EXISTS Task (task_id INTEGER, name STRING, cmd STRING, mount_path STRING, is_preemptable INTEGER, priority INTEGER);''')
+            self.db.execute('''CREATE TABLE Gpu (gpu_id INTEGER, gpu_type STRING);''')
+            self.db.execute('''CREATE TABLE Container (container_id STRING, is_preemptable INTEGER, priority INTEGER, usd_per_sec REAL);''')
+            self.db.execute('''CREATE TABLE GpuContainer (gpu_id INTEGER, container_id STRING);''')
+            self.db.execute('''CREATE TABLE Task (task_id INTEGER, name STRING, cmd STRING, mount_path STRING, is_preemptable INTEGER, priority INTEGER);''')
+
+    def is_sane(self):
+        num_missing_items = self.db.execute('''SELECT COUNT(0) FROM GpuContainer LEFT JOIN Gpu LEFT JOIN Container WHERE Gpu.gpu_id IS NULL OR Container.container_id IS NULL;''').fetchone()[0]
+        return num_missing_items == 0
 
     def gpu_row(self, gpu_id):
         return self.db.execute('''SELECT * FROM Gpu WHERE gpu_id = ?;''', (gpu_id,)).fetchone()
 
     def container_row(self, container_id):
         return self.db.execute('''SELECT * FROM Container WHERE container_id = ?;''', (container_id,)).fetchone()
+
+    def num_gpus(self):
+        return len(self.db.execute('''SELECT 0 FROM Gpu;''').fetchall())
+
+    def container_ids(self):
+        return [container_id for (container_id,) in self.db.execute('''SELECT container_id FROM Container;''').fetchall()]
 
     def gpu_containers(self, gpu_id):
         return [container_id for (container_id,) in self.db.execute('''SELECT container_id FROM GpuContainer WHERE gpu_id = ?;''', (gpu_id,)).fetchall()]
@@ -69,16 +91,12 @@ class GpuSchedulerStateConnection:
             self.db.execute('''INSERT INTO Container VALUES (?, ?, ?, ?)''', (container_id, is_preemptable, priority, usd_per_sec))
             if gpu_ids:
                 self.db.executemany('''INSERT INTO GpuContainer VALUES (?, ?)''', [(gpu_id, container_id) for gpu_id in gpu_ids])
-        return container_id
 
-    def add_gpu_row(self, gpu_type, container_ids=None):
-        gpu_id = self.next_gpu_id
+    def add_gpu_row(self, gpu_id, gpu_type, container_ids=None):
         with self.db:
             self.db.execute('''INSERT INTO Gpu VALUES (?, ?)''', (gpu_id, gpu_type))
             if container_ids:
                 self.db.executemany('''INSERT INTO GpuContainer VALUES (?, ?)''', [(gpu_id, container_id) for container_id in container_ids])
-        self.next_gpu_id += 1
-        return gpu_id
 
     def get_unused_gpus(self):
         return [gpu_id for (gpu_id,) in self.db.execute('''SELECT Gpu.gpu_id FROM Gpu LEFT JOIN GpuContainer WHERE GpuContainer.gpu_id IS NULL''').fetchall()]
